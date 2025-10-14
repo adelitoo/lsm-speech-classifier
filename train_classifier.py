@@ -24,7 +24,7 @@ def train_and_evaluate_classifier():
 
     print("\nTraining the Random Forest classifier...") 
     
-    clf = RandomForestClassifier(n_estimators=200, random_state=42) 
+    clf = RandomForestClassifier(n_estimators=300, random_state=42) 
     
     clf.fit(X_train, y_train)
     print("✅ Training complete.")
