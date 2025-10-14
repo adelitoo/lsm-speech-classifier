@@ -4,14 +4,13 @@ from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 from pathlib import Path
 
-# (Configuration and load_spike_dataset function remain the same)
 NUM_NEURONS = 3000
 NUM_OUTPUT_NEURONS = 500
 LEAK_COEFFICIENT = 0
 REFRACTORY_PERIOD = 7
 MEMBRANE_THRESHOLD = 2.0
 SMALL_WORLD_P = 0.2
-SMALL_WORLD_K = 300
+SMALL_WORLD_K = 200
 np.random.seed(42)
 
 def load_spike_dataset(filename="speech_spike_dataset.npz"):
@@ -25,12 +24,10 @@ def load_spike_dataset(filename="speech_spike_dataset.npz"):
     print(f"✅ Loaded {len(X_spikes)} samples.")
     return X_spikes, y_labels
 
-# --- MODIFIED FEATURE EXTRACTION FUNCTION ---
 def extract_features(lsm, spike_data, desc=""):
     """Processes spike trains through the LSM and extracts MEAN SPIKE TIME features."""
     features = []
     
-    # <<< DEBUG: Lists to store summary stats of the new features
     all_feature_means = []
     all_feature_maxes = []
 
@@ -40,23 +37,16 @@ def extract_features(lsm, spike_data, desc=""):
         lsm.simulate()
         feature_dict = lsm.extract_features_from_spikes()
         
-        # --- MODIFIED PART ---
-        # Get the mean spike times instead of the counts
         current_features = feature_dict["mean_spike_times"]
         
-        # The library returns -1 for neurons that never spiked. We'll set these to 0.
         current_features[current_features < 0] = 0
-        # --- END MODIFIED PART ---
         
         features.append(current_features)
         
-        # <<< DEBUG: Store stats for this feature vector
-        if np.any(current_features > 0): # Avoid errors if a feature vector is all zeros
-            # Calculate the average timing for neurons that actually fired
+        if np.any(current_features > 0): 
             all_feature_means.append(np.mean(current_features[current_features > 0]))
         all_feature_maxes.append(np.max(current_features))
             
-    # <<< DEBUG PRINT for summary statistics of the new features
     print(f"\n    --- DEBUG: Output Feature Statistics ({desc}) ---")
     if all_feature_means:
          print(f"    > Avg of Mean Spike Times (for active neurons): {np.mean(all_feature_means):.2f}")
@@ -65,7 +55,6 @@ def extract_features(lsm, spike_data, desc=""):
 
     return np.array(features)
 
-# (The main function remains the same as before)
 def main():
     X_spikes, y_labels = load_spike_dataset()
     if X_spikes is None: return

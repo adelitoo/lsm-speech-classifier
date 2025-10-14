@@ -5,9 +5,6 @@ from pathlib import Path
 from scipy.ndimage import zoom
 from tqdm import tqdm
 
-# ============================================================================
-# 1. CONFIGURATION
-# ============================================================================
 SAMPLE_RATE = 16000
 DURATION = 1.0
 N_MELS = 200
@@ -16,9 +13,6 @@ SPIKE_THRESHOLDS = [0.65, 0.75, 0.85]
 MAX_SAMPLES_PER_CLASS = 500
 VISUALIZE_FIRST_SAMPLE = True 
 
-# ============================================================================
-# 2. CORE FUNCTIONS (No changes here)
-# ============================================================================
 def load_audio_file(filepath: Path) -> np.ndarray | None:
     try:
         audio, _ = librosa.load(filepath, sr=SAMPLE_RATE, duration=DURATION, mono=True)
@@ -61,9 +55,6 @@ def visualize_conversion(mel, spikes, filename):
     plt.tight_layout()
     plt.show()
 
-# ============================================================================
-# 3. MAIN EXECUTION
-# ============================================================================
 def create_dataset():
     """Processes all audio files and saves them into a single .npz file."""
     COMMANDS = ["yes", "no", "up", "down"]
@@ -71,7 +62,7 @@ def create_dataset():
 
     all_spike_trains = []
     all_labels = []
-    all_spike_counts = [] # <<< DEBUG: List to hold all spike counts for overall stats
+    all_spike_counts = [] 
 
     print("Starting dataset creation...")
 
@@ -81,7 +72,7 @@ def create_dataset():
         command_dir = BASE_DATASET_PATH / command
         audio_files = sorted(list(command_dir.glob("*.wav")))[:MAX_SAMPLES_PER_CLASS]
         
-        command_spike_counts = [] # <<< DEBUG: Temp list for this command's stats
+        command_spike_counts = [] 
 
         if not audio_files:
             print(f"Warning: No .wav files found for '{command}'. Skipping.")
@@ -94,7 +85,6 @@ def create_dataset():
             mel_spectrogram = audio_to_mel_spectrogram(audio_data)
             spike_train = mel_to_spikes(mel_spectrogram)
             
-            # <<< DEBUG: Store the spike count for this sample
             num_spikes = np.sum(spike_train)
             command_spike_counts.append(num_spikes)
 
@@ -104,12 +94,11 @@ def create_dataset():
             if VISUALIZE_FIRST_SAMPLE and i == 0:
                 visualize_conversion(mel_spectrogram, spike_train, audio_file_path.name)
         
-        # <<< DEBUG PRINT for per-command stats
         if command_spike_counts:
             avg_spikes_for_command = np.mean(command_spike_counts)
             print(f"  -> DEBUG: Average spikes for '{command}': {avg_spikes_for_command:.2f}")
 
-        all_spike_counts.extend(command_spike_counts) # <<< DEBUG: Add to overall list
+        all_spike_counts.extend(command_spike_counts) 
 
     X_spikes = np.array(all_spike_trains, dtype=np.uint8)
     y_labels = np.array(all_labels, dtype=np.int32)
@@ -118,7 +107,6 @@ def create_dataset():
     print(f"Shape of spike train data (X): {X_spikes.shape}")
     print(f"Shape of labels data (y): {y_labels.shape}")
 
-    # <<< DEBUG PRINT section for overall dataset statistics
     if all_spike_counts:
         print("\n--- DEBUG: Overall Dataset Statistics ---")
         print(f" > Total samples processed: {len(all_spike_counts)}")
@@ -127,7 +115,6 @@ def create_dataset():
         print(f" > Maximum spikes in a sample: {np.max(all_spike_counts)}")
         print("----------------------------------------")
 
-    # --- SAVING STEP ---
     output_filename = "speech_spike_dataset.npz"
     np.savez_compressed(output_filename, X_spikes=X_spikes, y_labels=y_labels)
     print(f"\n✅ Dataset saved to a single file: '{output_filename}'")
