@@ -5,11 +5,11 @@ from tqdm import tqdm
 from pathlib import Path
 
 NUM_NEURONS = 3000
-NUM_OUTPUT_NEURONS = 500
+NUM_OUTPUT_NEURONS = 600
 LEAK_COEFFICIENT = 0
 REFRACTORY_PERIOD = 7
 MEMBRANE_THRESHOLD = 2.0
-SMALL_WORLD_P = 0.2
+SMALL_WORLD_P = 0.4
 SMALL_WORLD_K = 200
 
 np.random.seed(42)
@@ -59,7 +59,12 @@ def extract_features(lsm, spike_data, desc=""):
 def main():
     X_spikes, y_labels = load_spike_dataset()
     if X_spikes is None: return
-    I = np.mean(X_spikes)
+    num_samples = X_spikes.shape[0]
+    num_input_neurons = X_spikes.shape[1]  # 200 mel bands
+    num_time_bins = X_spikes.shape[2]
+    
+    # Mean input current PER INPUT NEURON
+    I = np.sum(X_spikes) / (num_samples * num_input_neurons * num_time_bins)
     beta = SMALL_WORLD_K / 2
     w_critico = (MEMBRANE_THRESHOLD - 2 * I * REFRACTORY_PERIOD) / beta
     print(f"\nCalculated Critical Weight (w_critico): {w_critico:.6f}\n")
