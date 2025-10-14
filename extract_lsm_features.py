@@ -11,6 +11,7 @@ REFRACTORY_PERIOD = 7
 MEMBRANE_THRESHOLD = 2.0
 SMALL_WORLD_P = 0.2
 SMALL_WORLD_K = 200
+
 np.random.seed(42)
 
 def load_spike_dataset(filename="speech_spike_dataset.npz"):
