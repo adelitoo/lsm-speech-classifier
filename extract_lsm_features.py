@@ -4,7 +4,6 @@ from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 from pathlib import Path
 
-# --- Constants (no changes here) ---
 NUM_NEURONS = 1000
 NUM_OUTPUT_NEURONS = 400
 LEAK_COEFFICIENT = 0
@@ -26,7 +25,6 @@ def load_spike_dataset(filename="speech_spike_dataset.npz"):
     print(f"✅ Loaded {len(X_spikes)} samples.")
     return X_spikes, y_labels
 
-# --- MODIFICATIONS START HERE ---
 
 def extract_features(lsm, spike_data, features_to_extract, desc=""):
     """
@@ -34,7 +32,6 @@ def extract_features(lsm, spike_data, features_to_extract, desc=""):
     """
     all_combined_features = []
     
-    # Lists to store activity statistics for each sample
     all_sample_total_spikes = []
     all_sample_active_neurons = []
 
@@ -45,30 +42,24 @@ def extract_features(lsm, spike_data, features_to_extract, desc=""):
         
         feature_dict = lsm.extract_features_from_spikes()
         
-        # --- Collect debugging stats (no changes to this part) ---
         spike_counts_for_sample = feature_dict["spike_counts"]
         total_spikes_in_sample = np.sum(spike_counts_for_sample)
         active_neurons_in_sample = np.count_nonzero(spike_counts_for_sample)
         all_sample_total_spikes.append(total_spikes_in_sample)
         all_sample_active_neurons.append(active_neurons_in_sample)
         
-        # --- NEW: Extract and combine the specified features ---
         sample_feature_parts = []
         for feature_name in features_to_extract:
-            # Get the feature vector from the dictionary
             feature_vector = feature_dict[feature_name].copy()
             
-            # Clean up potential invalid values (NaNs, inf, negatives)
             feature_vector = np.nan_to_num(feature_vector, nan=0.0, posinf=0.0, neginf=0.0)
             feature_vector[feature_vector < 0] = 0
             
             sample_feature_parts.append(feature_vector)
         
-        # Concatenate all parts (e.g., spike_counts + mean_spike_times) into one vector
         combined_features = np.concatenate(sample_feature_parts)
         all_combined_features.append(combined_features)
             
-    # Print the aggregated debugging statistics (no changes to this part)
     num_output_neurons = lsm.num_output_neurons
     avg_total_spikes = np.mean(all_sample_total_spikes)
     avg_active_neurons = np.mean(all_sample_active_neurons)
@@ -105,11 +96,9 @@ def main():
                               small_world_graph_p=SMALL_WORLD_P, small_world_graph_k=SMALL_WORLD_K, input_spike_times=X_train[0])
     lsm = SNN(simulation_params=params)
     
-    # --- NEW: Define which features to use for this experiment ---
     features_to_use = ["mean_spike_times", "spike_counts"]
     print(f"\nExtracting features: {features_to_use}")
     
-    # Pass the list of features to the extraction function
     X_train_features = extract_features(lsm, X_train, features_to_extract=features_to_use, desc="Extracting training features")
     X_test_features = extract_features(lsm, X_test, features_to_extract=features_to_use, desc="Extracting test features")
     

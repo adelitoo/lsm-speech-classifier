@@ -418,20 +418,7 @@ def continue_optimization(study_filename, n_additional_trials=20):
 def main():
     """Main function."""
     
-    # Run Bayesian optimization
     study = run_bayesian_optimization(n_trials=100)
-    
-    # Optional: Continue optimization if you want more trials
-    # study = continue_optimization('lsm_bayesian_study_YYYYMMDD_HHMMSS.pkl', n_additional_trials=20)
-    
-    # Optional: Create visualization (requires plotly)
-    # try:
-    #     import plotly
-    #     fig = optuna.visualization.plot_optimization_history(study)
-    #     fig.write_html('optimization_history.html')
-    #     print("\nVisualization saved to: optimization_history.html")
-    # except ImportError:
-    #     print("\nInstall plotly to generate visualizations: pip install plotly")
 
 if __name__ == "__main__":
     main()
