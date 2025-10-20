@@ -1,0 +1,10 @@
+parameter,value,accuracy,critical_weight,num_neurons,num_output_neurons,leak_coefficient,refractory_period,membrane_threshold,small_world_p,small_world_k
+refractory_period,1,0.6675,0.036075529,1000,400,0,1,2,0.2,100
+refractory_period,2,0.7025,0.032151057999999996,1000,400,0,2,2,0.2,100
+refractory_period,3,0.6975,0.028226586999999997,1000,400,0,3,2,0.2,100
+refractory_period,4,0.695,0.024302116,1000,400,0,4,2,0.2,100
+refractory_period,5,0.6925,0.020377644999999996,1000,400,0,5,2,0.2,100
+refractory_period,6,0.695,0.016453174,1000,400,0,6,2,0.2,100
+refractory_period,7,0.6675,0.012528703,1000,400,0,7,2,0.2,100
+refractory_period,8,0.6,0.008604232,1000,400,0,8,2,0.2,100
+refractory_period,9,0.5525,0.004679761,1000,400,0,9,2,0.2,100
