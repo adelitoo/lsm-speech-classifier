@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from tqdm import tqdm
+from scipy.signal import savgol_filter
 
 from snnpy.snn import SNN, SimulationParams
 from sklearn.model_selection import train_test_split
@@ -20,6 +21,11 @@ SPIKE_DATASET_FILE = "speech_spike_dataset.npz"
 
 # --- Features to use for classification ---
 FEATURES_TO_USE = ["mean_spike_times", "spike_counts"]
+
+# --- Smoothing parameters ---
+APPLY_SMOOTHING = True  # Set to False to disable smoothing
+SMOOTHING_WINDOW = 51   # Must be odd, larger = smoother
+SMOOTHING_POLY_ORDER = 3  # Polynomial order for Savitzky-Golay
 
 np.random.seed(42)
 
@@ -125,8 +131,7 @@ def main_experiment():
     # 3. Define the range of weights to test
     # We'll test a range *around* your w_critico
     # For example, from 25% to 250% of w_critico
-    WEIGHTS_TO_TEST = np.linspace(w_critico * 0.1, w_critico * 4, num=500)
-    
+    WEIGHTS_TO_TEST = np.linspace(0.001, 0.06, num=500)    
     print("Will test the following mean_weight values:")
     print([float(f"{w:.6f}") for w in WEIGHTS_TO_TEST])
     
@@ -164,31 +169,66 @@ def main_experiment():
     for w, acc in results:
         print(f"  Weight: {w:.6f}  ->  Accuracy: {acc * 100:.2f}%")
 
+    # Apply smoothing if enabled
+    if APPLY_SMOOTHING:
+        print(f"\n🔄 Applying Savitzky-Golay smoothing (window={SMOOTHING_WINDOW}, poly_order={SMOOTHING_POLY_ORDER})...")
+        accuracies_smoothed = savgol_filter(accuracies, SMOOTHING_WINDOW, SMOOTHING_POLY_ORDER)
+        print("✅ Smoothing applied")
+    else:
+        accuracies_smoothed = accuracies
+        print("\n⚠️  Smoothing disabled")
+
+    # Find best accuracy (using smoothed data if enabled)
+    best_idx = np.argmax(accuracies_smoothed)
+    best_w = weights[best_idx]
+    best_acc = accuracies_smoothed[best_idx]
+
     # Plot the results
     plt.figure(figsize=(12, 7))
-    plt.plot(weights, accuracies, 'o-', label="Test Accuracy", markersize=8)
+    
+    # Plot raw data with transparency if smoothing is applied
+    if APPLY_SMOOTHING:
+        plt.plot(weights, accuracies, 'o', alpha=0.3, markersize=3, 
+                 label="Raw Data", color='lightsteelblue')
+        plt.plot(weights, accuracies_smoothed, '-', linewidth=2.5, 
+                 label="Smoothed (Savitzky-Golay)", color='darkblue')
+    else:
+        plt.plot(weights, accuracies, 'o-', label="Test Accuracy", 
+                 markersize=4, linewidth=1.5, color='steelblue')
     
     # Add a line for the reference w_critico
-    plt.axvline(x=w_critico, color='r', linestyle='--', 
+    plt.axvline(x=w_critico, color='red', linestyle='--', linewidth=2, alpha=0.7,
                 label=f'Reference w_critico ({w_critico:.6f})')
                 
     # Add a marker for the best accuracy
-    best_idx = np.argmax(accuracies)
-    best_w = weights[best_idx]
-    best_acc = accuracies[best_idx]
-    plt.plot(best_w, best_acc, 'r*', markersize=15, 
+    plt.plot(best_w, best_acc, 'r*', markersize=20, zorder=5,
              label=f'Best Accuracy: {best_acc * 100:.2f}% at {best_w:.6f}')
 
     plt.title("LSM Classifier Accuracy vs. Average Synaptic Weight", fontsize=16)
     plt.xlabel("Average Synaptic Weight (mean_weight)", fontsize=12)
     plt.ylabel("Test Accuracy", fontsize=12)
     plt.legend(fontsize=10)
-    plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+    plt.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.5)
     
     # Save the plot
-    plot_filename = "weight_vs_accuracy.png"
-    plt.savefig(plot_filename)
+    if APPLY_SMOOTHING:
+        plot_filename = "weight_vs_accuracy_smoothed.png"
+    else:
+        plot_filename = "weight_vs_accuracy.png"
+    
+    plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
     print(f"\n✅ Results plot saved to '{plot_filename}'")
+    
+    # Save results to file
+    results_filename = "weight_accuracy_results.npz"
+    np.savez(results_filename, 
+             weights=np.array(weights), 
+             accuracies=np.array(accuracies),
+             accuracies_smoothed=np.array(accuracies_smoothed) if APPLY_SMOOTHING else np.array(accuracies),
+             w_critico=w_critico,
+             best_weight=best_w,
+             best_accuracy=best_acc)
+    print(f"✅ Results saved to '{results_filename}'")
     
     # Show the plot
     plt.show()
