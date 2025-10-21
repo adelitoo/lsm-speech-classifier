@@ -6,7 +6,9 @@ from pathlib import Path
 def train_and_evaluate_classifier():
     """Loads the LSM features, trains a classifier, and evaluates it."""
     
-    class_names = ["yes", "no", "up", "down"]
+    class_names = ["yes", "no", "up", "down", "backward", "bed", "bird", "cat", "dog", "eight", "five", "follow", "forward", "four",
+                "go", "happy", "house", "learn", "left", "marvin", "nine", "off", "on", "one", "right", "seven", "sheila",
+                "six", "stop", "three", "tree", "two", "visual", "wow", "zero"]
     dataset_filename = "lsm_features_dataset.npz"
 
     print(f"Loading feature dataset from '{dataset_filename}'...")

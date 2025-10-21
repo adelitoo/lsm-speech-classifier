@@ -10,8 +10,8 @@ DURATION = 1.0
 N_MELS = 200
 TIME_BINS = 100
 SPIKE_THRESHOLDS = [0.60, 0.70, 0.80] 
-MAX_SAMPLES_PER_CLASS = 500
-VISUALIZE_FIRST_SAMPLE = True 
+MAX_SAMPLES_PER_CLASS = 1000
+VISUALIZE_FIRST_SAMPLE = False 
 
 def load_audio_file(filepath: Path) -> np.ndarray | None:
     try:
@@ -57,7 +57,9 @@ def visualize_conversion(mel, spikes, filename):
 
 def create_dataset():
     """Processes all audio files and saves them into a single .npz file."""
-    COMMANDS = ["yes", "no", "up", "down"]
+    COMMANDS = ["yes", "no", "up", "down", "backward", "bed", "bird", "cat", "dog", "eight", "five", "follow", "forward", "four",
+                "go", "happy", "house", "learn", "left", "marvin", "nine", "off", "on", "one", "right", "seven", "sheila",
+                "six", "stop", "three", "tree", "two", "visual", "wow", "zero"]
     BASE_DATASET_PATH = Path("speech_commands_v0.02")
 
     all_spike_trains = []
