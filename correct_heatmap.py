@@ -243,12 +243,12 @@ def run_grid_search():
         heatmap_data, 
         annot=True,       
         fmt=".4f",        
-        cmap="RdYlGn",    # Better color scheme: Red=low, Yellow=mid, Green=high
+        cmap="viridis",    # Better color scheme: Red=low, Yellow=mid, Green=high
         cbar_kws={'label': 'Test Accuracy'},
         vmin=0.60,        # Adjust to your actual range for better contrast
         vmax=0.75,
         mask=mask,        # Only mask NaN values
-        annot_kws={"size": 9, "weight": "bold"},
+        annot_kws={"size": 9, "weight": "bold", "color": "black"},
         linewidths=0.5,
         linecolor='gray'
     )

@@ -12,8 +12,11 @@ from scipy.signal import savgol_filter
 
 # Leak coefficient range to test
 # Note: leak_coefficient typically ranges from 0 (no leak) to 1 (maximum leak)
-LEAK_COEFFICIENTS = np.linspace(0, 1, num=50)  # Test 50 values from 0 to 1
+# Create 49 points from 0.001 (10^-3) to 1.0 (10^0)
+log_leaks = np.logspace(-3, 0, num=49) 
 
+# Add 0.0 to the beginning, for a total of 50 points
+LEAK_COEFFICIENTS = np.concatenate(([0.0], log_leaks))
 # Base configuration (fixed parameters)
 BASE_CONFIG = {
     'num_neurons': 1000,
