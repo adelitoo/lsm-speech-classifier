@@ -11,7 +11,7 @@ N_MELS = 200
 TIME_BINS = 100
 SPIKE_THRESHOLDS = [0.60, 0.70, 0.80, 0.90] 
 MAX_SAMPLES_PER_CLASS = 1000
-VISUALIZE_FIRST_SAMPLE = True
+VISUALIZE_FIRST_SAMPLE = False
 
 def load_audio_file(filepath: Path) -> np.ndarray | None:
     try:
