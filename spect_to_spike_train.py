@@ -95,6 +95,10 @@ def create_dataset():
 
     print("Starting dataset creation with new temporal encoding...") # <-- Text changed
 
+    # --- THIS IS THE FIRST CHANGE ---
+    REDUNDANCY_FACTOR = 5
+    print(f"Applying {REDUNDANCY_FACTOR}x spatial redundancy...")
+
     for label_idx, command in enumerate(COMMANDS):
         print("-" * 50)
         print(f"Processing command: '{command}' (Label: {label_idx})")
@@ -113,7 +117,11 @@ def create_dataset():
                 continue
             mel_spectrogram = audio_to_mel_spectrogram(audio_data)
             
-            # <-- CHANGED: Call the new function and pass the thresholds
+            # --- THIS IS THE SECOND CHANGE ---
+            # Repeat the mel spectrogram 5x along the neuron axis (axis=0)
+            mel_spectrogram = np.repeat(mel_spectrogram, REDUNDANCY_FACTOR, axis=0)
+            
+            # This function will now receive a (1000, 100) array
             spike_train = convert_mels_to_spikes_temporal(mel_spectrogram, SPIKE_THRESHOLDS)
             
             num_spikes = np.sum(spike_train)
@@ -123,6 +131,7 @@ def create_dataset():
             all_labels.append(label_idx)
 
             if VISUALIZE_FIRST_SAMPLE and i == 0:
+                # Note: visualization will now show a 1000-bin-tall spectrogram
                 visualize_conversion(mel_spectrogram, spike_train, audio_file_path.name)
         
         if command_spike_counts:
@@ -135,7 +144,8 @@ def create_dataset():
     y_labels = np.array(all_labels, dtype=np.int32)
 
     print("\nDataset creation complete.")
-    print(f"Shape of spike train data (X): {X_spikes.shape}") # <-- This shape will now be (35000, 200, 500)
+    # This shape will now be (35000, 1000, 400) given N_MELS=200, factor=5, and 4 thresholds
+    print(f"Shape of spike train data (X): {X_spikes.shape}") 
     print(f"Shape of labels data (y): {y_labels.shape}")
 
     if all_spike_counts:
@@ -146,7 +156,7 @@ def create_dataset():
         print(f" > Maximum spikes in a sample: {np.max(all_spike_counts)}")
         print("----------------------------------------")
 
-    output_filename = "speech_spike_dataset.npz" # <-- Changed filename
+    output_filename = "speech_spike_dataset_redundant.npz" # <-- Changed filename
     np.savez_compressed(output_filename, X_spikes=X_spikes, y_labels=y_labels)
     print(f"\n✅ Dataset saved to a single file: '{output_filename}'")
 

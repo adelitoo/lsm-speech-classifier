@@ -15,7 +15,7 @@ MEMBRANE_THRESHOLD = 2
 SMALL_WORLD_P = 0.2
 SMALL_WORLD_K = 200            
 
-WEIGHT_MULTIPLIERS_TO_TRY = [0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95]  # Try range around critical
+WEIGHT_MULTIPLIERS_TO_TRY = [0.25, 0.35, 0.45, 0.55, 0.60, 0.65, 0.70, 0.75, 0.85, 0.95]  # Try range around critical
 
 np.random.seed(42)
 
