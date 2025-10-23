@@ -8,14 +8,13 @@ from pathlib import Path
 
 # TUNED PARAMETERS - Finding the balance
 NUM_NEURONS = 1000
-NUM_OUTPUT_NEURONS = 400      # Reduced from 400
-LEAK_COEFFICIENT = 0        # Non-zero for decay
+NUM_OUTPUT_NEURONS = 400     
+LEAK_COEFFICIENT = 0        
 REFRACTORY_PERIOD = 4
 MEMBRANE_THRESHOLD = 2
 SMALL_WORLD_P = 0.2
-SMALL_WORLD_K = 100            # Reduced connectivity
+SMALL_WORLD_K = 200            
 
-# Key tuning parameter - we'll try multiple values
 WEIGHT_MULTIPLIERS_TO_TRY = [0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95]  # Try range around critical
 
 np.random.seed(42)
@@ -220,7 +219,7 @@ def main():
     params = SimulationParams(
         num_neurons=NUM_NEURONS,
         mean_weight=optimal_weight,
-        weight_variance=optimal_weight * 0.5,
+        weight_variance=optimal_weight * 5,
         num_output_neurons=NUM_OUTPUT_NEURONS,
         is_random_uniform=False,
         membrane_threshold=MEMBRANE_THRESHOLD,
@@ -264,7 +263,6 @@ def main():
         y_train=y_train,
         X_test_features=X_test_features,
         y_test=y_test,
-        # Save configuration for reference
         weight_multiplier=optimal_multiplier,
         final_weight=optimal_weight,
         train_activity_pct=train_activity,
