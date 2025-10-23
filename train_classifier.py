@@ -7,8 +7,8 @@ def train_and_evaluate_classifier():
     """Loads the LSM features, trains a classifier, and evaluates it."""
     
     class_names = ["yes", "no", "up", "down", "backward", "bed", "bird", "cat", "dog", "eight", "five", "follow", "forward", "four",
-                "go", "happy", "house", "learn", "left", "marvin", "nine", "off", "on", "one", "right", "seven", "sheila",
-                "six", "stop", "three", "tree", "two", "visual", "wow", "zero"]
+                "go", "happy", "house", "learn", "left", "marvin", "nine", "off", "on", "one", "right", "seven", "sheila", "six",
+                "stop", "three", "tree", "two", "visual", "wow", "zero"]
     dataset_filename = "lsm_features_dataset.npz"
 
     print(f"Loading feature dataset from '{dataset_filename}'...")
@@ -26,7 +26,7 @@ def train_and_evaluate_classifier():
 
     print("\nTraining the Random Forest classifier...") 
     
-    clf = RandomForestClassifier(n_estimators=350, random_state=42) 
+    clf = RandomForestClassifier(n_estimators=100, random_state=42) 
     
     clf.fit(X_train, y_train)
     print("✅ Training complete.")

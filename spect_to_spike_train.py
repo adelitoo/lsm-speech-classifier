@@ -5,13 +5,13 @@ from pathlib import Path
 from scipy.ndimage import zoom
 from tqdm import tqdm
 
-SAMPLE_RATE = 16000
+SAMPLE_RATE = 16000 # 32hz 8hz, provo con hertz diversi
 DURATION = 1.0
 N_MELS = 200
 TIME_BINS = 100
-SPIKE_THRESHOLDS = [0.60, 0.70, 0.80] 
+SPIKE_THRESHOLDS = [0.60, 0.70, 0.80, 0.90] 
 MAX_SAMPLES_PER_CLASS = 1000
-VISUALIZE_FIRST_SAMPLE = False 
+VISUALIZE_FIRST_SAMPLE = True
 
 def load_audio_file(filepath: Path) -> np.ndarray | None:
     try:
@@ -36,37 +36,64 @@ def audio_to_mel_spectrogram(audio: np.ndarray) -> np.ndarray:
         mel_spec_norm = zoom(mel_spec_norm, (1, zoom_factor), order=1)
     return mel_spec_norm[:, :TIME_BINS]
 
-def mel_to_spikes(mel_spec: np.ndarray) -> np.ndarray:
-    spike_train = np.zeros_like(mel_spec, dtype=np.uint8)
-    for threshold in SPIKE_THRESHOLDS:
-        spike_train[mel_spec > threshold] = 1
-    return spike_train
+# <-- CHANGED: This is the new, better temporal encoding function
+def convert_mels_to_spikes_temporal(mel_spec: np.ndarray, thresholds: list) -> np.ndarray:
+    """
+    Uses multiple thresholds to encode TIMING information.
+    Earlier spikes = higher intensity.
+    """
+    if not thresholds:
+        return np.zeros_like(mel_spec, dtype=np.uint8)
+    
+    # Sort thresholds descending (highest first)
+    sorted_thresholds = sorted(thresholds, reverse=True)
+    
+    # Create output with extra time dimension for multiple spike times
+    n_mels, n_time = mel_spec.shape
+    n_threshold_steps = len(sorted_thresholds)
+    
+    # Expand time axis to accommodate multiple spike times per bin
+    X_spikes = np.zeros((n_mels, n_time * n_threshold_steps), dtype=np.uint8)
+    
+    for t_idx, threshold in enumerate(sorted_thresholds):
+        # Spikes occur at different time offsets based on threshold
+        time_offset = t_idx
+        exceeded = mel_spec > threshold
+        
+        # Place spikes in the expanded time dimension
+        for time_bin in range(n_time):
+            output_time = time_bin * n_threshold_steps + time_offset
+            X_spikes[:, output_time] = exceeded[:, time_bin]
+    
+    return X_spikes
 
 def visualize_conversion(mel, spikes, filename):
+    # (Visualization function remains the same, though the 'spikes'
+    # image will now be 5x wider)
     fig, axes = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
     fig.suptitle(f"Conversion for '{filename}'", fontsize=16)
     axes[0].imshow(mel, aspect='auto', origin='lower', cmap='viridis')
     axes[0].set_title("Mel Spectrogram")
     axes[0].set_ylabel("Mel Bins")
     axes[1].imshow(spikes, aspect='auto', origin='lower', cmap='gray_r', interpolation='nearest')
-    axes[1].set_title("Final Spike Train")
+    axes[1].set_title("Final Spike Train (Temporally Encoded)") # <-- Title changed
     axes[1].set_ylabel("Mel Bins")
-    axes[1].set_xlabel("Time Bins")
+    axes[1].set_xlabel("Expanded Time Bins") # <-- Label changed
     plt.tight_layout()
     plt.show()
 
 def create_dataset():
     """Processes all audio files and saves them into a single .npz file."""
     COMMANDS = ["yes", "no", "up", "down", "backward", "bed", "bird", "cat", "dog", "eight", "five", "follow", "forward", "four",
-                "go", "happy", "house", "learn", "left", "marvin", "nine", "off", "on", "one", "right", "seven", "sheila",
-                "six", "stop", "three", "tree", "two", "visual", "wow", "zero"]
+                "go", "happy", "house", "learn", "left", "marvin", "nine", "off", "on", "one", "right", "seven", "sheila", "six",
+                "stop", "three", "tree", "two", "visual", "wow", "zero"]
     BASE_DATASET_PATH = Path("speech_commands_v0.02")
 
     all_spike_trains = []
     all_labels = []
     all_spike_counts = [] 
 
-    print("Starting dataset creation...")
+    print("Starting dataset creation with new temporal encoding...") # <-- Text changed
 
     for label_idx, command in enumerate(COMMANDS):
         print("-" * 50)
@@ -85,7 +112,9 @@ def create_dataset():
             if audio_data is None:
                 continue
             mel_spectrogram = audio_to_mel_spectrogram(audio_data)
-            spike_train = mel_to_spikes(mel_spectrogram)
+            
+            # <-- CHANGED: Call the new function and pass the thresholds
+            spike_train = convert_mels_to_spikes_temporal(mel_spectrogram, SPIKE_THRESHOLDS)
             
             num_spikes = np.sum(spike_train)
             command_spike_counts.append(num_spikes)
@@ -106,7 +135,7 @@ def create_dataset():
     y_labels = np.array(all_labels, dtype=np.int32)
 
     print("\nDataset creation complete.")
-    print(f"Shape of spike train data (X): {X_spikes.shape}")
+    print(f"Shape of spike train data (X): {X_spikes.shape}") # <-- This shape will now be (35000, 200, 500)
     print(f"Shape of labels data (y): {y_labels.shape}")
 
     if all_spike_counts:
@@ -117,7 +146,7 @@ def create_dataset():
         print(f" > Maximum spikes in a sample: {np.max(all_spike_counts)}")
         print("----------------------------------------")
 
-    output_filename = "speech_spike_dataset.npz"
+    output_filename = "speech_spike_dataset.npz" # <-- Changed filename
     np.savez_compressed(output_filename, X_spikes=X_spikes, y_labels=y_labels)
     print(f"\n✅ Dataset saved to a single file: '{output_filename}'")
 

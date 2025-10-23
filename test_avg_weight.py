@@ -104,7 +104,7 @@ def run_single_experiment(X_train, y_train, X_test, y_test, current_weight):
     X_test_features = extract_features(lsm, X_test, features_to_extract=FEATURES_TO_USE, desc="  Extracting test features")
 
     # 3. Train and evaluate the classifier
-    clf = RandomForestClassifier(n_estimators=350, random_state=42) 
+    clf = RandomForestClassifier(n_estimators=100, random_state=42) 
     clf.fit(X_train_features, y_train)
     y_pred = clf.predict(X_test_features)
     
