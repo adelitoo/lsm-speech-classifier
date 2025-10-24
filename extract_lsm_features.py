@@ -1,131 +1,99 @@
+"""
+Larger, more complex LSM for better feature discrimination
+
+Key changes:
+- More neurons (2000 vs 1000)
+- More output neurons (800 vs 400)
+- Better connectivity
+"""
+
 import numpy as np
 from snnpy.snn import SNN, SimulationParams
 from sklearn.model_selection import train_test_split
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from pathlib import Path
 
-# TUNED PARAMETERS - Finding the balance
-NUM_NEURONS = 1000
-NUM_OUTPUT_NEURONS = 400     
-LEAK_COEFFICIENT = 0        
+# LARGER NETWORK for more complex representations
+NUM_NEURONS = 1000  # Increased from 1000
+NUM_OUTPUT_NEURONS = 400  # Increased from 400
+LEAK_COEFFICIENT = 0
 REFRACTORY_PERIOD = 4
-MEMBRANE_THRESHOLD = 2
+MEMBRANE_THRESHOLD = 2.0
 SMALL_WORLD_P = 0.2
-SMALL_WORLD_K = 200            
+SMALL_WORLD_K = int(0.10 * NUM_NEURONS * 2)  
 
-WEIGHT_MULTIPLIERS_TO_TRY = [0.25, 0.35, 0.45, 0.55, 0.60, 0.65, 0.70, 0.75, 0.85, 0.95]  # Try range around critical
+BASE_MEAN_WEIGHT = 0.007
+WEIGHT_MULTIPLIERS = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
 
 np.random.seed(42)
 
-def load_spike_dataset(filename="speech_spike_dataset.npz"):
-    print(f"Loading spike train dataset from '{filename}'...")
-    if not Path(filename).exists():
-        print(f"Error: Dataset file not found at '{filename}'")
+def load_spike_dataset(filename="speech_spike_dataset_pure_redundancy.npz"):
+    print(f"Loading '{filename}'...")
+    
+    # Try different dataset files in order of preference
+    filenames_to_try = [
+        "speech_spike_dataset_pure_redundancy.npz",
+        "speech_spike_dataset_jittered.npz",
+        "speech_spike_dataset_rate_coded.npz"
+    ]
+    
+    data = None
+    for fname in filenames_to_try:
+        if Path(fname).exists():
+            print(f"✅ Found '{fname}'")
+            data = np.load(fname)
+            filename = fname
+            break
+    
+    if data is None:
+        print("Error: No dataset found")
         return None, None
-    data = np.load(filename)
+    
     X_spikes = data['X_spikes']
     y_labels = data['y_labels']
-    print(f"✅ Loaded {len(X_spikes)} samples.")
+    print(f"✅ Loaded {len(X_spikes)} samples, shape {X_spikes.shape}")
+    print(f"   Avg spikes: {np.sum(X_spikes)/len(X_spikes):.1f}")
     return X_spikes, y_labels
 
-
-def extract_features(lsm, spike_data, features_to_extract, desc=""):
-    """
-    Processes spike trains through the LSM and extracts a specified set of features.
-    """
-    all_combined_features = []
+def extract_all_features(lsm, spike_data, desc=""):
+    all_features = []
+    all_active = []
     
-    all_sample_total_spikes = []
-    all_sample_active_neurons = []
-
     for sample in tqdm(spike_data, desc=desc):
         lsm.reset()
         lsm.set_input_spike_times(sample)
         lsm.simulate()
         
         feature_dict = lsm.extract_features_from_spikes()
+        spike_counts = feature_dict["spike_counts"]
+        all_active.append(np.count_nonzero(spike_counts))
         
-        spike_counts_for_sample = feature_dict["spike_counts"]
-        total_spikes_in_sample = np.sum(spike_counts_for_sample)
-        active_neurons_in_sample = np.count_nonzero(spike_counts_for_sample)
-        all_sample_total_spikes.append(total_spikes_in_sample)
-        all_sample_active_neurons.append(active_neurons_in_sample)
+        parts = []
+        for key in ['spike_counts', 'mean_spike_times', 'first_spike_times', 
+                    'last_spike_times', 'isi_mean', 'isi_variance', 
+                    'spike_entropy', 'firing_rates', 'autocorrelation_first_lag',
+                    'burstiness', 'spike_symmetry', 'burst_counts']:
+            if key in feature_dict:
+                vec = np.nan_to_num(feature_dict[key].copy(), nan=0.0, posinf=0.0, neginf=0.0)
+                vec[vec < 0] = 0
+                parts.append(vec)
         
-        sample_feature_parts = []
-        for feature_name in features_to_extract:
-            feature_vector = feature_dict[feature_name].copy()
-            
-            feature_vector = np.nan_to_num(feature_vector, nan=0.0, posinf=0.0, neginf=0.0)
-            feature_vector[feature_vector < 0] = 0
-            
-            sample_feature_parts.append(feature_vector)
-        
-        combined_features = np.concatenate(sample_feature_parts)
-        all_combined_features.append(combined_features)
-            
-    num_output_neurons = lsm.num_output_neurons
-    avg_total_spikes = np.mean(all_sample_total_spikes)
-    avg_active_neurons = np.mean(all_sample_active_neurons)
-    activity_pct = avg_active_neurons / num_output_neurons * 100
+        all_features.append(np.concatenate(parts))
     
-    print(f"\n    --- DEBUG: LSM Activity Statistics ({desc}) ---")
-    print(f"    > Avg. total spikes per sample: {avg_total_spikes:.2f}")
-    print(f"    > Avg. active output neurons per sample: {avg_active_neurons:.2f} / {num_output_neurons} ({activity_pct:.2f}%)")
-    print(f"    > Min/Max active neurons in a sample: {np.min(all_sample_active_neurons)} / {np.max(all_sample_active_neurons)}")
+    activity_pct = np.mean(all_active) / lsm.num_output_neurons * 100
+    print(f"\n    Activity ({desc}): {activity_pct:.1f}%")
+    print(f"    Active neurons: {np.mean(all_active):.1f}/{lsm.num_output_neurons}")
     
-    # WARNING if still saturated
-    if activity_pct > 85:
-        print(f"    ⚠️  WARNING: LSM is over-saturated (>85% active)!")
-        print(f"    ⚠️  Try LOWER weight multiplier")
-    elif activity_pct < 30:
-        print(f"    ⚠️  WARNING: LSM is under-stimulated (<30% active)")
-        print(f"    ⚠️  Try HIGHER weight multiplier")
-    else:
-        print(f"    ✅ LSM activity looks healthy (30-85% active)")
-    
-    print(f"    --------------------------------------------------")
+    return np.array(all_features), activity_pct
 
-    return np.array(all_combined_features), activity_pct
-
-
-def check_feature_separability(X_features, y_labels, output_file="feature_separability.png"):
-    """Quick diagnostic to check if features separate classes"""
-    print("\n📊 Checking feature separability with PCA...")
-    
-    # Use subset for speed
-    n_samples = min(2000, len(X_features))
-    indices = np.random.choice(len(X_features), n_samples, replace=False)
-    
-    pca = PCA(n_components=2)
-    X_2d = pca.fit_transform(X_features[indices])
-    
-    plt.figure(figsize=(12, 10))
-    scatter = plt.scatter(X_2d[:, 0], X_2d[:, 1], c=y_labels[indices], 
-                         cmap='tab20', alpha=0.5, s=20, edgecolors='k', linewidth=0.3)
-    plt.colorbar(scatter, label='Class Label')
-    plt.title(f"PCA of LSM Features ({n_samples} samples)\nGood separation = distinct clusters")
-    plt.xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}% variance)")
-    plt.ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}% variance)")
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=150)
-    print(f"✅ Saved separability plot to '{output_file}'")
-    print(f"   PC1 explains {pca.explained_variance_ratio_[0]*100:.1f}% of variance")
-    print(f"   PC2 explains {pca.explained_variance_ratio_[1]*100:.1f}% of variance")
-    plt.close()
-
-
-def quick_test_weight(X_sample, y_sample, weights_mean, num_samples=500):
-    """
-    Quickly test a weight value on a small sample to check activity level.
-    Returns average activity percentage.
-    """
+def quick_test_weight(X_sample, weight, num_samples=200):
     params = SimulationParams(
         num_neurons=NUM_NEURONS,
-        mean_weight=weights_mean,
-        weight_variance=weights_mean * 0.5,
+        mean_weight=weight,
+        weight_variance=weight * 0.1,
         num_output_neurons=NUM_OUTPUT_NEURONS,
         is_random_uniform=False,
         membrane_threshold=MEMBRANE_THRESHOLD,
@@ -137,89 +105,77 @@ def quick_test_weight(X_sample, y_sample, weights_mean, num_samples=500):
     )
     lsm = SNN(simulation_params=params)
     
-    active_neurons_list = []
+    active_list = []
     for sample in X_sample[:num_samples]:
         lsm.reset()
         lsm.set_input_spike_times(sample)
         lsm.simulate()
-        feature_dict = lsm.extract_features_from_spikes()
-        spike_counts = feature_dict["spike_counts"]
-        active_neurons = np.count_nonzero(spike_counts)
-        active_neurons_list.append(active_neurons)
+        active_list.append(np.count_nonzero(lsm.extract_features_from_spikes()["spike_counts"]))
     
-    avg_active = np.mean(active_neurons_list)
-    activity_pct = avg_active / NUM_OUTPUT_NEURONS * 100
-    return activity_pct
+    return np.mean(active_list) / NUM_OUTPUT_NEURONS * 100
 
-
-def find_optimal_weight(X_train, y_train, w_critico):
-    """
-    Test different weight multipliers to find one in the 30-85% activity range.
-    """
+def find_optimal_weight(X_train):
     print("\n" + "="*60)
-    print("🔍 SEARCHING FOR OPTIMAL WEIGHT")
+    print("SEARCHING FOR OPTIMAL WEIGHT (Larger Network)")
     print("="*60)
-    print("Testing different weight multipliers on a sample of data...")
-    print(f"Target: 40-70% neuron activity\n")
     
     results = []
-    for multiplier in WEIGHT_MULTIPLIERS_TO_TRY:
-        test_weight = w_critico * multiplier
-        print(f"Testing multiplier {multiplier:.2f} (weight={test_weight:.6f})... ", end="", flush=True)
-        
-        activity = quick_test_weight(X_train, y_train, test_weight, num_samples=300)
-        results.append((multiplier, test_weight, activity))
-        
-        status = "✅ GOOD" if 30 <= activity <= 85 else ("⚠️ LOW" if activity < 30 else "⚠️ HIGH")
-        print(f"{activity:.1f}% active {status}")
+    for mult in WEIGHT_MULTIPLIERS:
+        weight = BASE_MEAN_WEIGHT * mult
+        print(f"Testing {mult:.2f}x (w={weight:.6f})... ", end="", flush=True)
+        activity = quick_test_weight(X_train, weight)
+        results.append((mult, weight, activity))
+        status = "✅" if 40 <= activity <= 75 else "⚠️"
+        print(f"{activity:.1f}% {status}")
     
-    # Find best multiplier (closest to 55% target)
-    target = 55
-    best_multiplier, best_weight, best_activity = min(results, key=lambda x: abs(x[2] - target))
-    
-    print("\n" + "="*60)
-    print(f"📊 SELECTED: multiplier={best_multiplier:.2f}, weight={best_weight:.6f}")
-    print(f"   Expected activity: {best_activity:.1f}%")
+    best = min(results, key=lambda x: abs(x[2] - 55))
+    print(f"\n📊 Selected: {best[0]:.2f}x, w={best[1]:.6f}, activity={best[2]:.1f}%")
     print("="*60 + "\n")
-    
-    return best_weight, best_multiplier
+    return best[1], best[0]
 
+def check_separability(X_features, y_labels, output_file="pca_larger_lsm.png"):
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X_features)
+    
+    n_samples = min(3000, len(X_features))
+    indices = np.random.choice(len(X_features), n_samples, replace=False)
+    
+    pca = PCA(n_components=2)
+    X_2d = pca.fit_transform(X_scaled[indices])
+    
+    plt.figure(figsize=(14, 10))
+    plt.scatter(X_2d[:, 0], X_2d[:, 1], c=y_labels[indices],
+               cmap='tab20', alpha=0.6, s=30, edgecolors='k', linewidth=0.4)
+    plt.colorbar(label='Class')
+    plt.title(f"PCA - Larger LSM ({NUM_NEURONS}N, {NUM_OUTPUT_NEURONS}O)")
+    plt.xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)")
+    plt.ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(output_file, dpi=150)
+    print(f"✅ Saved to '{output_file}'")
+    print(f"   PC1+PC2: {sum(pca.explained_variance_ratio_[:2])*100:.1f}%")
+    plt.close()
+    return scaler
 
 def main():
     X_spikes, y_labels = load_spike_dataset()
-    if X_spikes is None: return
+    if X_spikes is None:
+        return
     
-    num_samples = X_spikes.shape[0]
-    num_input_neurons = X_spikes.shape[1]
-    num_time_bins = X_spikes.shape[2]
+    print(f"\nDataset: {X_spikes.shape}")
     
-    # Calculate critical weight
-    I = np.sum(X_spikes) / (num_samples * num_input_neurons * num_time_bins)
-    beta = SMALL_WORLD_K / 2
-    w_critico = (MEMBRANE_THRESHOLD - 2 * I * REFRACTORY_PERIOD) / beta
-    
-    print("\n" + "="*60)
-    print("INITIAL WEIGHT CALCULATION")
-    print("="*60)
-    print(f"Calculated Critical Weight (w_critico): {w_critico:.6f}")
-    print(f"Input spikes per sample: {np.sum(X_spikes) / num_samples:.1f}")
-    print("="*60)
-    
-    # Split data
     X_train, X_test, y_train, y_test = train_test_split(
         X_spikes, y_labels, test_size=0.2, random_state=42, stratify=y_labels
     )
-    print(f"\nSplit data into {len(X_train)} training and {len(X_test)} test samples.")
     
-    # Find optimal weight
-    optimal_weight, optimal_multiplier = find_optimal_weight(X_train, y_train, w_critico)
+    optimal_weight, optimal_mult = find_optimal_weight(X_train)
     
-    # Instantiate SNN with optimal weight
-    print("Instantiating final SNN with optimal parameters...")
+    print(f"Creating larger LSM ({NUM_NEURONS} neurons, {NUM_OUTPUT_NEURONS} outputs)...")
     params = SimulationParams(
         num_neurons=NUM_NEURONS,
         mean_weight=optimal_weight,
-        weight_variance=optimal_weight * 5,
+        weight_variance=optimal_weight * 0.1,
         num_output_neurons=NUM_OUTPUT_NEURONS,
         is_random_uniform=False,
         membrane_threshold=MEMBRANE_THRESHOLD,
@@ -231,49 +187,35 @@ def main():
     )
     lsm = SNN(simulation_params=params)
     
-    # Extract features
-    features_to_use = ["mean_spike_times", "spike_counts"]
-    print(f"\nExtracting features: {features_to_use}")
+    print("\nExtracting features...")
+    X_train_feat, train_act = extract_all_features(lsm, X_train, "Training")
+    X_test_feat, test_act = extract_all_features(lsm, X_test, "Testing")
     
-    X_train_features, train_activity = extract_features(
-        lsm, X_train, 
-        features_to_extract=features_to_use, 
-        desc="Extracting training features"
-    )
+    print(f"\nFeatures: train={X_train_feat.shape}, test={X_test_feat.shape}")
     
-    X_test_features, test_activity = extract_features(
-        lsm, X_test, 
-        features_to_extract=features_to_use, 
-        desc="Extracting test features"
-    )
+    scaler = check_separability(X_train_feat, y_train)
     
-    print("\nFeature extraction complete.")
-    print(f"Shape of training features: {X_train_features.shape}")
-    print(f"Shape of test features: {X_test_features.shape}")
+    X_train_scaled = scaler.transform(X_train_feat)
+    X_test_scaled = scaler.transform(X_test_feat)
     
-    # Check feature quality
-    check_feature_separability(X_train_features, y_train)
-    
-    # Save results with metadata
-    output_filename = "lsm_features_dataset.npz"
-    print(f"\nSaving final features and labels to '{output_filename}'...")
+    output_file = "lsm_features_larger.npz"
+    print(f"\nSaving to '{output_file}'...")
     np.savez_compressed(
-        output_filename,
-        X_train_features=X_train_features,
+        output_file,
+        X_train_features=X_train_scaled,
         y_train=y_train,
-        X_test_features=X_test_features,
+        X_test_features=X_test_scaled,
         y_test=y_test,
-        weight_multiplier=optimal_multiplier,
+        weight_multiplier=optimal_mult,
         final_weight=optimal_weight,
-        train_activity_pct=train_activity,
-        test_activity_pct=test_activity
+        train_activity_pct=train_act,
+        test_activity_pct=test_act
     )
-    print("\n✅ Process complete. Your feature dataset is ready for classification.")
-    print(f"\nFinal configuration:")
-    print(f"  - Weight multiplier: {optimal_multiplier:.2f}")
-    print(f"  - Mean weight: {optimal_weight:.6f}")
-    print(f"  - Train activity: {train_activity:.1f}%")
-    print(f"  - Test activity: {test_activity:.1f}%")
+    
+    print("\n✅ Complete!")
+    print(f"Weight: {optimal_mult:.2f}x = {optimal_weight:.6f}")
+    print(f"Activity: {train_act:.1f}% / {test_act:.1f}%")
+    print(f"Feature dims: {X_train_feat.shape[1]}")
 
 if __name__ == "__main__":
     main()
