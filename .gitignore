@@ -4,3 +4,4 @@ speech_commands_v0.02/
 mel_spectrogram_dataset.npz
 speech_spike_dataset.npz
 .DS_Store
+speech_spike_dataset_jittered.npz

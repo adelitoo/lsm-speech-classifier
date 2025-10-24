@@ -1,10 +1,11 @@
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier 
+from sklearn.linear_model import LogisticRegression  
+from sklearn.preprocessing import StandardScaler     
 from sklearn.metrics import accuracy_score, classification_report
 from pathlib import Path
 
 def train_and_evaluate_classifier():
-    """Loads the LSM features, trains a classifier, and evaluates it."""
+    """Loads the LSM features, trains a Logistic Regression classifier, and evaluates it."""
     
     class_names = ["yes", "no", "up", "down", "backward", "bed", "bird", "cat", "dog", "eight", "five", "follow", "forward", "four",
                 "go", "happy", "house", "learn", "left", "marvin", "nine", "off", "on", "one", "right", "seven", "sheila", "six",
@@ -24,21 +25,31 @@ def train_and_evaluate_classifier():
     
     print(f"✅ Loaded {len(X_train)} training samples and {len(X_test)} test samples.")
 
-    print("\nTraining the Random Forest classifier...") 
+    print("\nScaling features...")
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test) 
+    print("✅ Scaling complete.")
+
+    print("\nTraining the Logistic Regression classifier...") 
     
-    clf = RandomForestClassifier(n_estimators=100, random_state=42) 
+    clf = LogisticRegression(
+        multi_class="multinomial", 
+        random_state=42, 
+        max_iter=1000  
+    ) 
     
-    clf.fit(X_train, y_train)
+    clf.fit(X_train_scaled, y_train) 
     print("✅ Training complete.")
 
     print("\nEvaluating performance on the test set...")
-    y_pred = clf.predict(X_test)
+    y_pred = clf.predict(X_test_scaled) 
     
     accuracy = accuracy_score(y_test, y_pred)
     report = classification_report(y_test, y_pred, target_names=class_names)
 
     print("\n" + "="*50)
-    print("       FINAL RESULTS (with Random Forest)")
+    print("     FINAL RESULTS (with Logistic Regression)")
     print("="*50)
     print(f"\nFinal Test Accuracy: {accuracy * 100:.2f}%\n")
     print("Classification Report:")
