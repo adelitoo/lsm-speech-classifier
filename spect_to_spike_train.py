@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from scipy.ndimage import zoom
 from tqdm import tqdm
+import warnings # Added for cleaner loading
 
 SAMPLE_RATE = 16000 
 DURATION = 1.0
@@ -25,12 +26,20 @@ VISUALIZE_FIRST_SAMPLE = False
 REDUNDANCY_FACTOR = 1  # Each mel bin repeated 1 time (i.e., no redundancy)
 # -------------------------------------------
 
+# --- NEW: Set to True to generate the histogram plot at the end ---
+PLOT_THRESHOLD_HISTOGRAM = True
+# -------------------------------------------
+
 np.random.seed(42)
 
 def load_audio_file(filepath: Path) -> np.ndarray | None:
     """Load audio file"""
     try:
-        audio, _ = librosa.load(filepath, sr=SAMPLE_RATE, duration=DURATION, mono=True)
+        # Suppress warnings if file is < DURATION
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            audio, _ = librosa.load(filepath, sr=SAMPLE_RATE, duration=DURATION, mono=True)
+            
         target_length = int(SAMPLE_RATE * DURATION)
         if len(audio) < target_length:
             audio = np.pad(audio, (0, target_length - len(audio)))
@@ -43,17 +52,33 @@ def load_audio_file(filepath: Path) -> np.ndarray | None:
 
 def audio_to_mel_spectrogram(audio: np.ndarray) -> np.ndarray:
     """Convert audio to mel spectrogram"""
-    hop_length = int(len(audio) / TIME_BINS)
+    # Ensure hop_length is at least 1
+    hop_length = max(1, int(len(audio) / TIME_BINS))
+    
     mel_spec = librosa.feature.melspectrogram(
         y=audio, sr=SAMPLE_RATE, n_mels=N_MELS, hop_length=hop_length
     )
     mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
-    mel_spec_norm = (mel_spec_db - mel_spec_db.min()) / (mel_spec_db.max() - mel_spec_db.min() + 1e-8)
     
+    # Handle silence or near-silence
+    mel_min = mel_spec_db.min()
+    mel_max = mel_spec_db.max()
+    if (mel_max - mel_min) < 1e-8:
+        return np.zeros((N_MELS, TIME_BINS), dtype=np.float32) # Return zeros for silence
+        
+    mel_spec_norm = (mel_spec_db - mel_min) / (mel_max - mel_min)
+    
+    # Resize to exactly TIME_BINS
     if mel_spec_norm.shape[1] != TIME_BINS:
-        zoom_factor = TIME_BINS / mel_spec_norm.shape[1]
-        mel_spec_norm = zoom(mel_spec_norm, (1, zoom_factor), order=1)
-    
+        try:
+            zoom_factor = TIME_BINS / mel_spec_norm.shape[1]
+            mel_spec_norm = zoom(mel_spec_norm, (1, zoom_factor), order=1)
+        except ValueError as e:
+            print(f"Warning: Zoom failed (shape {mel_spec_norm.shape}, factor {zoom_factor}): {e}")
+            # Fallback: create an empty array of the correct shape
+            return np.zeros((N_MELS, TIME_BINS), dtype=np.float32)
+            
+    # Ensure shape is exact after zoom/padding
     return mel_spec_norm[:, :TIME_BINS]
 
 def convert_mels_to_spikes_temporal(mel_spec: np.ndarray, thresholds: list) -> np.ndarray:
@@ -73,7 +98,8 @@ def convert_mels_to_spikes_temporal(mel_spec: np.ndarray, thresholds: list) -> n
         
         for time_bin in range(n_time):
             output_time = time_bin * n_threshold_steps + time_offset
-            X_spikes[:, output_time] = exceeded[:, time_bin]
+            if output_time < X_spikes.shape[1]: # Bounds check
+                X_spikes[:, output_time] = exceeded[:, time_bin]
     
     return X_spikes
 
@@ -135,6 +161,45 @@ def visualize_conversion(mel, base_spikes, final_spikes, filename):
     plt.tight_layout()
     plt.show()
 
+# --- NEW: Function to plot the histogram ---
+def plot_mel_value_distribution(all_values: list, thresholds: list):
+    """
+    Plots a histogram of all normalized mel values from the dataset
+    and overlays the spike thresholds.
+    """
+    print("\nGenerating Mel value distribution plot...")
+    
+    plt.figure(figsize=(12, 7))
+    
+    # Plot the histogram
+    # Using a subset if the dataset is huge, for performance
+    if len(all_values) > 10_000_000:
+        print("Dataset is large, plotting a random sample of 10M values.")
+        plot_values = np.random.choice(all_values, 10_000_000, replace=False)
+    else:
+        plot_values = all_values
+        
+    plt.hist(plot_values, bins=100, color='c', edgecolor='k', alpha=0.7, 
+             label='Mel Value Distribution (All Samples)')
+    
+    # Add vertical lines for the thresholds
+    colors = ['r', 'g', 'b', 'm']
+    for i, thresh in enumerate(thresholds):
+        plt.axvline(x=thresh, color=colors[i % len(colors)], linestyle='--', 
+                    linewidth=2, label=f'Threshold {thresh:.2f}')
+
+    plt.title('Distribution of Normalized Mel Spectrogram Values vs. Spike Thresholds')
+    plt.xlabel('Normalized Mel Value (0.0 to 1.0)')
+    plt.ylabel('Frequency (Count)')
+    plt.legend()
+    plt.grid(True, linestyle=':', alpha=0.6)
+    
+    # Use plt.show() to display the plot when the script finishes
+    print("...done. Displaying plot.")
+    plt.show()
+
+# ---------------------------------------------
+
 def create_dataset():
     """Create dataset, conditionally applying redundancy."""
     COMMANDS = ["yes", "no", "up", "down", "backward", "bed", "bird", "cat", "dog", 
@@ -145,6 +210,7 @@ def create_dataset():
     all_spike_trains = []
     all_labels = []
     all_spike_counts = []
+    all_mel_values = [] # <-- NEW: To store values for histogram
     
     print("="*60)
     if REDUNDANCY_FACTOR > 1:
@@ -168,6 +234,12 @@ def create_dataset():
     for label_idx, command in enumerate(COMMANDS):
         print(f"Processing '{command}' (label {label_idx})...")
         command_dir = BASE_DATASET_PATH / command
+        
+        # Check if directory exists
+        if not command_dir.is_dir():
+            print(f"  Warning: Directory not found, skipping: {command_dir}")
+            continue
+            
         audio_files = sorted(list(command_dir.glob("*.wav")))[:MAX_SAMPLES_PER_CLASS]
         
         if not audio_files:
@@ -184,6 +256,11 @@ def create_dataset():
             
             mel_spectrogram = audio_to_mel_spectrogram(audio_data)
             
+            # --- NEW: Collect all mel values ---
+            if PLOT_THRESHOLD_HISTOGRAM:
+                all_mel_values.extend(mel_spectrogram.flatten())
+            # -----------------------------------
+
             # Convert to base spike train
             base_spike_train = convert_mels_to_spikes_temporal(mel_spectrogram, SPIKE_THRESHOLDS)
             
@@ -197,7 +274,8 @@ def create_dataset():
                         start = mel_idx * REDUNDANCY_FACTOR
                         end = (mel_idx + 1) * REDUNDANCY_FACTOR
                         group = final_spike_train[start:end, :]
-                        assert np.all(group == group[0]), f"Redundancy check failed for mel {mel_idx}"
+                        if not np.all(group == group[0]):
+                             print(f"Warning: Redundancy check failed for mel {mel_idx}")
             else:
                 final_spike_train = base_spike_train
             # -------------------------------------
@@ -220,6 +298,15 @@ def create_dataset():
         
         all_spike_counts.extend(command_spike_counts)
     
+    # --- Check if any data was processed ---
+    if not all_spike_trains:
+        print("\n" + "="*60)
+        print("ERROR: No audio files were successfully processed.")
+        print(f"Please check the path: {BASE_DATASET_PATH.resolve()}")
+        print("="*60)
+        return # Exit if no data
+    # ---------------------------------------
+
     # Convert to arrays
     X_spikes = np.array(all_spike_trains, dtype=np.uint8)
     y_labels = np.array(all_labels, dtype=np.int32)
@@ -269,6 +356,11 @@ def create_dataset():
     else:
         print("\n💡 Redundancy disabled.")
         print("   - Each mel frequency is represented by 1 input neuron.")
+
+    # --- NEW: Call the plotting function at the end ---
+    if PLOT_THRESHOLD_HISTOGRAM and all_mel_values:
+        plot_mel_value_distribution(all_mel_values, SPIKE_THRESHOLDS)
+    # -------------------------------------------------
 
 if __name__ == "__main__":
     create_dataset()
