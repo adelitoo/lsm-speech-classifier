@@ -1,40 +1,33 @@
-"""
-PURE SIGNAL REDUNDANCY - No jittering, just multiple pathways
-
-Each spike train is sent to multiple input neurons EXACTLY as-is.
-This creates:
-- Multiple entry points into the reservoir for the same signal
-- Different random connections to reservoir neurons
-- Potentially more robust feature extraction through averaging
-
-Key: The redundancy benefit comes from DIFFERENT reservoir connections,
-     not from adding noise to the input.
-"""
-
 import librosa
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from scipy.ndimage import zoom
 from tqdm import tqdm
+import warnings # <-- Added import
 
 SAMPLE_RATE = 16000 # 8Hz / 32Hz
 DURATION = 1.0
-N_MELS = 80  # Base number of mel bins
+N_MELS = 200  # Base number of mel bins
 TIME_BINS = 100
-SPIKE_THRESHOLDS = [0.60, 0.70, 0.80, 0.90]  # provare rate encoding invece che temoporal   
+SPIKE_THRESHOLDS = [0.60, 0.70, 0.80, 0.90]     
+HYSTERESIS_GAP = 0.05 # <-- Added Hysteresis Gap
 MAX_SAMPLES_PER_CLASS = 1000
 VISUALIZE_FIRST_SAMPLE = False
 
 # PURE REDUNDANCY - just replication
-REDUNDANCY_FACTOR = 3  # Each mel bin repeated 3 times
+REDUNDANCY_FACTOR = 1  
 
 np.random.seed(42)
 
 def load_audio_file(filepath: Path) -> np.ndarray | None:
     """Load audio file"""
     try:
-        audio, _ = librosa.load(filepath, sr=SAMPLE_RATE, duration=DURATION, mono=True)
+        # Suppress warnings if file is < DURATION
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            audio, _ = librosa.load(filepath, sr=SAMPLE_RATE, duration=DURATION, mono=True)
+            
         target_length = int(SAMPLE_RATE * DURATION)
         if len(audio) < target_length:
             audio = np.pad(audio, (0, target_length - len(audio)))
@@ -47,19 +40,36 @@ def load_audio_file(filepath: Path) -> np.ndarray | None:
 
 def audio_to_mel_spectrogram(audio: np.ndarray) -> np.ndarray:
     """Convert audio to mel spectrogram"""
-    hop_length = int(len(audio) / TIME_BINS)
+    # Ensure hop_length is at least 1
+    hop_length = max(1, int(len(audio) / TIME_BINS))
+    
     mel_spec = librosa.feature.melspectrogram(
         y=audio, sr=SAMPLE_RATE, n_mels=N_MELS, hop_length=hop_length
     )
     mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
-    mel_spec_norm = (mel_spec_db - mel_spec_db.min()) / (mel_spec_db.max() - mel_spec_db.min() + 1e-8)
     
+    # Handle silence or near-silence
+    mel_min = mel_spec_db.min()
+    mel_max = mel_spec_db.max()
+    if (mel_max - mel_min) < 1e-8:
+        return np.zeros((N_MELS, TIME_BINS), dtype=np.float32) # Return zeros for silence
+        
+    mel_spec_norm = (mel_spec_db - mel_min) / (mel_max - mel_min + 1e-8)
+    
+    # Resize to exactly TIME_BINS
     if mel_spec_norm.shape[1] != TIME_BINS:
-        zoom_factor = TIME_BINS / mel_spec_norm.shape[1]
-        mel_spec_norm = zoom(mel_spec_norm, (1, zoom_factor), order=1)
-    
+        try:
+            zoom_factor = TIME_BINS / mel_spec_norm.shape[1]
+            mel_spec_norm = zoom(mel_spec_norm, (1, zoom_factor), order=1)
+        except ValueError as e:
+            print(f"Warning: Zoom failed (shape {mel_spec_norm.shape}, factor {zoom_factor}): {e}")
+            # Fallback: create an empty array of the correct shape
+            return np.zeros((N_MELS, TIME_BINS), dtype=np.float32)
+            
+    # Ensure shape is exact after zoom/padding
     return mel_spec_norm[:, :TIME_BINS]
 
+# --- This is the old function (which is no longer called) ---
 def convert_mels_to_spikes_temporal(mel_spec: np.ndarray, thresholds: list) -> np.ndarray:
     """Convert mel spectrogram to temporal spike encoding"""
     if not thresholds:
@@ -77,9 +87,47 @@ def convert_mels_to_spikes_temporal(mel_spec: np.ndarray, thresholds: list) -> n
         
         for time_bin in range(n_time):
             output_time = time_bin * n_threshold_steps + time_offset
-            X_spikes[:, output_time] = exceeded[:, time_bin]
+            if output_time < X_spikes.shape[1]: # Bounds check
+                X_spikes[:, output_time] = exceeded[:, time_bin]
     
     return X_spikes
+
+# --- HERE IS THE RESTORED HYSTERESIS FUNCTION ---
+def convert_mels_to_spikes_hysteresis(mel_spec, thresholds, hysteresis_gap=0.05):
+    """
+    Converts mel spectrogram to spikes using hysteresis.
+    Outputs a '1' for every time step the neuron is in the 'active' state.
+    """
+    n_mels, n_time = mel_spec.shape
+    n_thresholds = len(thresholds)
+    
+    # Output shape is (n_mels, n_time * n_thresholds)
+    # This interleaves the threshold channels
+    spikes = np.zeros((n_mels, n_time * n_thresholds), dtype=np.uint8)
+    
+    # We iterate through thresholds from high to low
+    for t_idx, threshold in enumerate(sorted(thresholds, reverse=True)):
+        active = np.zeros(n_mels, dtype=bool) # Memory for each neuron
+        lower_bound = threshold - hysteresis_gap
+        
+        for time_bin in range(n_time):
+            # Conditions to change state
+            rising = (mel_spec[:, time_bin] > threshold) & ~active
+            falling = (mel_spec[:, time_bin] < lower_bound) & active
+            
+            # Update the state
+            active[rising] = True
+            active[falling] = False
+            
+            # --- Sustained Pulse Logic ---
+            # Output the 'active' state for this time step
+            # The t_idx ensures we write to the correct channel
+            output_time = time_bin * n_thresholds + t_idx
+            if output_time < spikes.shape[1]: # Bounds check
+                spikes[:, output_time] = active.astype(np.uint8)
+            
+    return spikes
+# ----------------------------------------------------
 
 def create_pure_redundancy(spike_train: np.ndarray, redundancy_factor: int) -> np.ndarray:
     """
@@ -158,6 +206,7 @@ def create_dataset():
     print(f"  Redundancy factor: {REDUNDANCY_FACTOR}x")
     print(f"  Input neurons per sample: {N_MELS * REDUNDANCY_FACTOR}")
     print(f"  Thresholds: {SPIKE_THRESHOLDS}")
+    print(f"  Encoding: Hysteresis (Gap: {HYSTERESIS_GAP})") # <-- Updated print
     print(f"\n  Strategy: Each spike train sent to {REDUNDANCY_FACTOR} different")
     print(f"            input neurons with IDENTICAL patterns.")
     print(f"            Benefit from DIFFERENT reservoir connections only.")
@@ -166,6 +215,12 @@ def create_dataset():
     for label_idx, command in enumerate(COMMANDS):
         print(f"Processing '{command}' (label {label_idx})...")
         command_dir = BASE_DATASET_PATH / command
+        
+        # Check if directory exists
+        if not command_dir.is_dir():
+            print(f"  Warning: Directory not found, skipping: {command_dir}")
+            continue
+
         audio_files = sorted(list(command_dir.glob("*.wav")))[:MAX_SAMPLES_PER_CLASS]
         
         if not audio_files:
@@ -182,14 +237,19 @@ def create_dataset():
             
             mel_spectrogram = audio_to_mel_spectrogram(audio_data)
             
-            # Convert to base spike train
-            base_spike_train = convert_mels_to_spikes_temporal(mel_spectrogram, SPIKE_THRESHOLDS)
+            # --- MODIFIED: Calling hysteresis function ---
+            base_spike_train = convert_mels_to_spikes_hysteresis(
+                mel_spectrogram, 
+                SPIKE_THRESHOLDS, 
+                HYSTERESIS_GAP
+            )
+            # ---------------------------------------------
             
             # Create PURE redundancy - just exact replication
             redundant_spike_train = create_pure_redundancy(base_spike_train, REDUNDANCY_FACTOR)
             
             # Verify it's exactly redundant (for sanity check)
-            if i == 0:
+            if i == 0 and REDUNDANCY_FACTOR > 1: # Added check for factor > 1
                 # Check first sample: each group of REDUNDANCY_FACTOR rows should be identical
                 for mel_idx in range(min(5, N_MELS)):  # Check first 5 mel bins
                     start = mel_idx * REDUNDANCY_FACTOR
@@ -216,6 +276,15 @@ def create_dataset():
         
         all_spike_counts.extend(command_spike_counts)
     
+    # --- Check if any data was processed ---
+    if not all_spike_trains:
+        print("\n" + "="*60)
+        print("ERROR: No audio files were successfully processed.")
+        print(f"Please check the path: {BASE_DATASET_PATH.resolve()}")
+        print("="*60)
+        return # Exit if no data
+    # ---------------------------------------
+
     # Convert to arrays
     X_spikes = np.array(all_spike_trains, dtype=np.uint8)
     y_labels = np.array(all_labels, dtype=np.int32)
@@ -234,10 +303,11 @@ def create_dataset():
     print(f"  Min/Max: {np.min(all_spike_counts)} / {np.max(all_spike_counts)}")
     
     # Note about redundancy
-    base_spikes = np.mean(all_spike_counts) / REDUNDANCY_FACTOR
-    print(f"\n  Base spikes (before redundancy): ~{base_spikes:.1f}")
-    print(f"  Multiplication factor: {REDUNDANCY_FACTOR}x")
-    print(f"  Total spikes (with redundancy): {np.mean(all_spike_counts):.1f}")
+    if REDUNDANCY_FACTOR > 1: # Only print this if redundancy is active
+        base_spikes = np.mean(all_spike_counts) / REDUNDANCY_FACTOR
+        print(f"\n  Base spikes (before redundancy): ~{base_spikes:.1f}")
+        print(f"  Multiplication factor: {REDUNDANCY_FACTOR}x")
+        print(f"  Total spikes (with redundancy): {np.mean(all_spike_counts):.1f}")
     
     print("="*60)
     
@@ -246,12 +316,15 @@ def create_dataset():
     np.savez_compressed(output_filename, X_spikes=X_spikes, y_labels=y_labels)
     print(f"\n✅ Saved to '{output_filename}'")
     
-    print("\n💡 How this helps:")
-    print("   - Each mel frequency is represented by 3 input neurons")
-    print("   - All 3 send IDENTICAL spike patterns")
-    print("   - But connect to DIFFERENT random subsets of reservoir neurons")
-    print("   - LSM integrates across these diverse pathways")
-    print("   - Result: More robust features, better generalization")
+    if REDUNDANCY_FACTOR > 1: # Only print if redundancy is active
+        print("\n💡 How this helps:")
+        print("   - Each mel frequency is represented by 3 input neurons")
+        print("   - All 3 send IDENTICAL spike patterns")
+        print("   - But connect to DIFFERENT random subsets of reservoir neurons")
+        print("   - LSM integrates across these diverse pathways")
+        print("   - Result: More robust features, better generalization")
+    else:
+        print("\n💡 Redundancy disabled.")
 
 if __name__ == "__main__":
     create_dataset()

@@ -1,12 +1,3 @@
-"""
-Larger, more complex LSM for better feature discrimination
-
-Key changes:
-- More neurons (2000 vs 1000)
-- More output neurons (800 vs 400)
-- Better connectivity
-"""
-
 import numpy as np
 from snnpy.snn import SNN, SimulationParams
 from sklearn.model_selection import train_test_split
@@ -26,7 +17,7 @@ SMALL_WORLD_P = 0.2
 SMALL_WORLD_K = int(0.10 * NUM_NEURONS * 2)  
 
 BASE_MEAN_WEIGHT = 0.007
-WEIGHT_MULTIPLIERS = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+WEIGHT_MULTIPLIERS = [1.0]
 
 np.random.seed(42)
 
