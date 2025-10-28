@@ -7,12 +7,13 @@ from tqdm import tqdm
 import warnings
 import argparse
 from gammatone import gtgram
+import sys
 
 SAMPLE_RATE = 16000
 DURATION = 1.0
 TIME_BINS = 100
-SPIKE_THRESHOLDS = [0.60, 0.70, 0.80, 0.90]
-HYSTERESIS_GAP = 0.05
+SPIKE_THRESHOLDS = [0.70, 0.80, 0.90, 0.95]
+HYSTERESIS_GAP = 0.1
 MAX_SAMPLES_PER_CLASS = 1000
 VISUALIZE_FIRST_SAMPLE = False
 REDUNDANCY_FACTOR = 1
@@ -132,6 +133,46 @@ def visualize_conversion(mel, base_spikes, redundant_spikes, filename, n_filters
     plt.tight_layout()
     plt.show()
 
+def visualize_hysteresis_channel(spectrogram, channel_index, thresholds, hysteresis_gap, filename):
+    """Generates a detailed plot to debug the hysteresis logic for a single channel."""
+    n_filters, n_time = spectrogram.shape
+    n_thresholds = len(thresholds)
+    
+    # Get the analog signal for the specific channel
+    analog_signal = spectrogram[channel_index, :]
+    
+    # Generate the multi-channel spike output for just this one channel
+    single_channel_spectrogram = np.expand_dims(analog_signal, axis=0)
+    spikes = convert_mels_to_spikes_hysteresis(single_channel_spectrogram, thresholds, hysteresis_gap)
+
+    # --- Plotting ---
+    fig, axes = plt.subplots(2, 1, figsize=(16, 10), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+    fig.suptitle(f"Hysteresis Debugging for '{filename}' - Channel {channel_index}", fontsize=16)
+
+    # Plot 1: Analog signal and thresholds
+    axes[0].plot(analog_signal, label=f'Channel {channel_index} Signal', color='#1f77b4')
+    colors = plt.cm.autumn(np.linspace(0, 1, n_thresholds))
+    for i, threshold in enumerate(sorted(thresholds, reverse=True)):
+        lower_bound = threshold - hysteresis_gap
+        axes[0].axhline(y=threshold, color=colors[i], linestyle='--', alpha=0.9, label=f'Thresh {i+1} (ON)')
+        axes[0].axhline(y=lower_bound, color=colors[i], linestyle=':', alpha=0.7, label=f'Thresh {i+1} (OFF)')
+    
+    axes[0].set_title("Analog Spectrogram Value vs. Time")
+    axes[0].set_ylabel("Normalized Amplitude")
+    axes[0].legend(loc='upper right')
+    axes[0].grid(True, alpha=0.3)
+
+    # Plot 2: Resulting spike train
+    axes[1].imshow(spikes, aspect='auto', cmap='gray_r', interpolation='nearest', origin='lower')
+    axes[1].set_title("Resulting Multi-Threshold Spike Output")
+    axes[1].set_xlabel("Time Bins")
+    axes[1].set_ylabel("Threshold Channels")
+    axes[1].set_yticks(np.arange(n_thresholds))
+    axes[1].set_yticklabels(reversed([f"Thresh {i+1}" for i in range(n_thresholds)]))
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.show()
+
 def create_dataset(n_filters: int, filterbank: str):
     """Create dataset with pure signal redundancy (no jitter)"""
     COMMANDS = ["yes", "no", "up", "down", "backward", "bed", "bird", "cat", "dog",
@@ -239,9 +280,49 @@ def create_dataset(n_filters: int, filterbank: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Create a spike train dataset from audio files.")
-    parser.add_argument("--n-filters", type=int, default=200,
-                        help="Number of filters to use in the filterbank (default: 200).")
-    parser.add_argument("--filterbank", type=str, default="mel", choices=["mel", "gammatone"],
-                        help="Type of filterbank to use (default: mel).")
+    parser.add_argument("--n-filters", type=int, default=128,
+                        help="Number of filters to use in the filterbank (default: 128).")
+    parser.add_argument("--filterbank", type=str, default="gammatone", choices=["mel", "gammatone"],
+                        help="Type of filterbank to use (default: gammatone).")
+    parser.add_argument("--debug-hysteresis", type=str, default=None,
+                        help="Path to a .wav file to debug. Runs visualization and exits.")
+    parser.add_argument("--debug-channel", type=int, default=50,
+                        help="The filter channel to visualize for the debug plot (default: 50).")
+
     args = parser.parse_args()
-    create_dataset(n_filters=args.n_filters, filterbank=args.filterbank)
+
+    if args.debug_hysteresis:
+        print("--- Running in Hysteresis Debug Mode ---")
+        audio_file = Path(args.debug_hysteresis)
+        if not audio_file.exists():
+            print(f"Error: Debug file not found at '{audio_file}'")
+            sys.exit(1)
+
+        # Load and process a single file
+        audio_data = load_audio_file(audio_file)
+        if audio_data is not None:
+            print(f"Generating spectrogram for '{audio_file.name}'...")
+            if args.filterbank == 'mel':
+                spectrogram = audio_to_mel_spectrogram(audio_data, args.n_filters)
+            else:
+                spectrogram = audio_to_gammatone_spectrogram(audio_data, args.n_filters)
+            
+            # Check if channel index is valid
+            if args.debug_channel >= spectrogram.shape[0]:
+                print(f"Error: --debug-channel ({args.debug_channel}) is out of bounds. "
+                      f"Max channel is {spectrogram.shape[0] - 1}.")
+                sys.exit(1)
+
+            print(f"Visualizing channel {args.debug_channel}...")
+            visualize_hysteresis_channel(
+                spectrogram,
+                args.debug_channel,
+                SPIKE_THRESHOLDS,
+                HYSTERESIS_GAP,
+                audio_file.name
+            )
+        else:
+            print("Could not load audio file.")
+    else:
+        # Run the full dataset creation
+        create_dataset(n_filters=args.n_filters, filterbank=args.filterbank)

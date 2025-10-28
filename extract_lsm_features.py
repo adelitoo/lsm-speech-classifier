@@ -63,11 +63,7 @@ def extract_all_features(lsm, spike_data, desc=""):
         all_active.append(np.count_nonzero(spike_counts))
         
         parts = []
-        for key in ['spike_counts',"spike_variances",
-            "mean_spike_times",
-            "mean_isi",
-            "isi_variances",
-            ]:
+        for key in ['spike_counts',"spike_variances", "mean_spike_times", "mean_isi", "isi_variances",]:
             if key in feature_dict:
                 vec = np.nan_to_num(feature_dict[key].copy(), nan=0.0, posinf=0.0, neginf=0.0)
                 vec[vec < 0] = 0
