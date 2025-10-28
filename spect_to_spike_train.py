@@ -81,27 +81,24 @@ def audio_to_mel_spectrogram(audio: np.ndarray) -> np.ndarray:
     # Ensure shape is exact after zoom/padding
     return mel_spec_norm[:, :TIME_BINS]
 
-def convert_mels_to_spikes_temporal(mel_spec: np.ndarray, thresholds: list) -> np.ndarray:
-    """Convert mel spectrogram to temporal spike encoding"""
-    if not thresholds:
-        return np.zeros_like(mel_spec, dtype=np.uint8)
-    
-    sorted_thresholds = sorted(thresholds, reverse=True)
+def convert_mels_to_spikes_hysteresis(mel_spec, thresholds, hysteresis_gap=0.05):
     n_mels, n_time = mel_spec.shape
-    n_threshold_steps = len(sorted_thresholds)
+    n_thresholds = len(thresholds)
+    spikes = np.zeros((n_mels, n_time * n_thresholds), dtype=np.uint8)
     
-    X_spikes = np.zeros((n_mels, n_time * n_threshold_steps), dtype=np.uint8)
-    
-    for t_idx, threshold in enumerate(sorted_thresholds):
-        time_offset = t_idx
-        exceeded = mel_spec > threshold
+    for t_idx, threshold in enumerate(sorted(thresholds, reverse=True)):
+        active = np.zeros(n_mels, dtype=bool)
+        lower_bound = threshold - hysteresis_gap
         
         for time_bin in range(n_time):
-            output_time = time_bin * n_threshold_steps + time_offset
-            if output_time < X_spikes.shape[1]: # Bounds check
-                X_spikes[:, output_time] = exceeded[:, time_bin]
-    
-    return X_spikes
+            rising = (mel_spec[:, time_bin] > threshold) & ~active
+            falling = (mel_spec[:, time_bin] < lower_bound) & active
+            active[rising] = True
+            active[falling] = False
+            spikes[:, time_bin * n_thresholds + t_idx] = rising.astype(np.uint8)
+            
+    return spikes
+
 
 def create_pure_redundancy(spike_train: np.ndarray, redundancy_factor: int) -> np.ndarray:
     """
@@ -262,7 +259,7 @@ def create_dataset():
             # -----------------------------------
 
             # Convert to base spike train
-            base_spike_train = convert_mels_to_spikes_temporal(mel_spectrogram, SPIKE_THRESHOLDS)
+            base_spike_train = convert_mels_to_spikes_hysteresis(mel_spectrogram, SPIKE_THRESHOLDS)
             
             # --- Conditionally apply redundancy ---
             if REDUNDANCY_FACTOR > 1:
