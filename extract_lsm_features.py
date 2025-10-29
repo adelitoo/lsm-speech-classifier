@@ -22,9 +22,9 @@ import argparse
 NUM_NEURONS = 1000
 NUM_OUTPUT_NEURONS = 400
 LEAK_COEFFICIENT = 0
-REFRACTORY_PERIOD = 4
+REFRACTORY_PERIOD = 2
 MEMBRANE_THRESHOLD = 2.0
-SMALL_WORLD_P = 0.2
+SMALL_WORLD_P = 0.1
 SMALL_WORLD_K = int(0.10 * NUM_NEURONS * 2) # k=200
 
 # --- Feature Set Definitions ---
@@ -210,7 +210,7 @@ def main(feature_set: str, multiplier: float):
     
     # 8. Save features
     # (Using the dynamic filename from our previous version)
-    output_file = f"lsm_features_{feature_set}_mult_{optimal_mult:.2f}.npz"
+    output_file = f"lsm_features_larger.npz"
     print(f"\nSaving to '{output_file}'...")
     np.savez_compressed(
         output_file,
