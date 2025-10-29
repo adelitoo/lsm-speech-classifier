@@ -4,17 +4,19 @@ LSM Feature Extraction (Configurable Multiplier)
 This script extracts features from a Liquid State Machine.
 It calculates the theoretical w_critico and uses a 
 COMMAND-LINE MULTIPLIER to set the final synaptic weight.
+
+(This version has all plotting code removed for faster runs)
 """
 
 import numpy as np
 from snnpy.snn import SNN, SimulationParams
 from sklearn.model_selection import train_test_split
-from sklearn.decomposition import PCA
+# from sklearn.decomposition import PCA  <-- REMOVED
 from sklearn.preprocessing import StandardScaler
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt  <-- REMOVED
 from tqdm import tqdm
 from pathlib import Path
-import argparse # Make sure this is imported
+import argparse 
 
 # --- Network Parameters ---
 NUM_NEURONS = 1000
@@ -137,36 +139,9 @@ def extract_all_features(lsm, spike_data, feature_keys, desc=""):
     print(f"    Active neurons: {np.mean(all_active):.1f}/{lsm.num_output_neurons}")
     return np.array(all_features), activity_pct
 
-# --- Visualization Function ---
-
-def check_separability(X_features, y_labels, optimal_weight, mult, output_file_base="pca_features"):
-    """Visualize feature separability using PCA"""
-    output_file = f"{output_file_base}_mult_{mult:.2f}.png"
-    
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X_features)
-    
-    n_samples = min(3000, len(X_features))
-    indices = np.random.choice(len(X_features), n_samples, replace=False)
-    
-    pca = PCA(n_components=2)
-    X_2d = pca.fit_transform(X_scaled[indices])
-    
-    plt.figure(figsize=(14, 10))
-    plt.scatter(X_2d[:, 0], X_2d[:, 1], c=y_labels[indices],
-               cmap='tab20', alpha=0.6, s=30, edgecolors='k', linewidth=0.4)
-    plt.colorbar(label='Class')
-    plt.title(f"PCA - LSM Features (w={optimal_weight:.6f}, mult={mult:.2f})")
-    plt.xlabel(f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%)")
-    plt.ylabel(f"PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)")
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=150)
-    print(f"✅ Saved PCA plot to '{output_file}'")
-    print(f"   PC1+PC2 variance: {sum(pca.explained_variance_ratio_[:2])*100:.1f}%")
-    plt.close()
-    
-    return scaler
+# --- Visualization Function (REMOVED) ---
+# def check_separability(...):
+#     ...
 
 # --- Main Execution ---
 
@@ -226,18 +201,16 @@ def main(feature_set: str, multiplier: float):
     
     print(f"\nFeatures: train={X_train_feat.shape}, test={X_test_feat.shape}")
     
-    # 7. Visualize and Scale
-    scaler = check_separability(
-        X_train_feat, y_train, 
-        optimal_weight, 
-        optimal_mult,
-        output_file_base=f"pca_features_{feature_set}"
-    )
-    X_train_scaled = scaler.transform(X_train_feat)
+    # --- 7. Scale Features (MOVED FROM check_separability) ---
+    print("\nScaling features...")
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train_feat)
     X_test_scaled = scaler.transform(X_test_feat)
+    print("✅ Scaling complete.")
     
     # 8. Save features
-    output_file = f"lsm_features_larger.npz"
+    # (Using the dynamic filename from our previous version)
+    output_file = f"lsm_features_{feature_set}_mult_{optimal_mult:.2f}.npz"
     print(f"\nSaving to '{output_file}'...")
     np.savez_compressed(
         output_file,
@@ -275,7 +248,6 @@ if __name__ == "__main__":
         choices=FEATURE_SETS.keys(),
         help="The set of features to extract (default: original)."
     )
-    # --- NEW ARGUMENT ---
     parser.add_argument(
         "--multiplier", 
         type=float, 
@@ -285,5 +257,4 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    # Pass the new argument to main
     main(feature_set=args.feature_set, multiplier=args.multiplier)
