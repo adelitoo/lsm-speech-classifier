@@ -175,8 +175,8 @@ def visualize_hysteresis_channel(spectrogram, channel_index, thresholds, hystere
 
 def create_dataset(n_filters: int, filterbank: str):
     """Create dataset with pure signal redundancy (no jitter)"""
-    COMMANDS = ["yes", "no", "up", "down", "backward", "bed", "bird", "cat", "dog",
-                "eight", "five", "follow"]
+    COMMANDS = ["yes", "no", "up", "visual", "backward", "stop", "bird", "cat", "nine",
+                "eight", "zero", "follow"]
     BASE_DATASET_PATH = Path("speech_commands_v0.02")
     all_spike_trains = []
     all_labels = []
