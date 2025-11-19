@@ -9,7 +9,7 @@ import argparse
 
 NUM_NEURONS = 1000
 NUM_OUTPUT_NEURONS = 400
-LEAK_COEFFICIENT = 0
+LEAK_COEFFICIENT = 1 / 100
 REFRACTORY_PERIOD = 2
 MEMBRANE_THRESHOLD = 2.0
 SMALL_WORLD_P = 0.1
@@ -89,7 +89,70 @@ def extract_all_features(lsm, spike_data, feature_keys, desc=""):
     return np.array(all_features)
 
 
-def main(feature_set: str, multiplier: float):
+def run_network_diagnostics(lsm, X_sample_batch):
+    """
+    Runs a few samples to check network health.
+    """
+    print("\n" + "="*40)
+    print("🔬 RUNNING NETWORK DIAGNOSTICS")
+    print("="*40)
+    
+    total_neurons = lsm.num_neurons
+    participation_rates = []
+    avg_firing_rates = []
+    silence_counts = []
+    
+    # Run on first 5 samples only
+    subset = X_sample_batch[:5]
+    
+    for i, sample in enumerate(subset):
+        lsm.reset()
+        lsm.set_input_spike_times(sample)
+        lsm.simulate()
+        
+        # Access internal spike matrix (Time x Neurons)
+        # We need the full reservoir, not just output neurons
+        if hasattr(lsm, 'spike_matrix'):
+            spikes = lsm.spike_matrix
+        else:
+            print("⚠️ Warning: Cannot access internal spike matrix for diagnostics.")
+            return
+
+        # 1. Participation: How many neurons fired at least once?
+        spikes_per_neuron = np.sum(spikes, axis=0)
+        active_neurons = np.count_nonzero(spikes_per_neuron)
+        participation = (active_neurons / total_neurons) * 100
+        participation_rates.append(participation)
+        
+        # 2. Dead Neurons
+        dead_neurons = total_neurons - active_neurons
+        silence_counts.append(dead_neurons)
+        
+        # 3. Average Spikes per Neuron (Activity Level)
+        avg_spikes = np.mean(spikes_per_neuron)
+        avg_firing_rates.append(avg_spikes)
+        
+        print(f"Sample {i+1}: Active: {participation:.1f}% | Dead: {dead_neurons} | Avg Spikes/Neuron: {avg_spikes:.2f}")
+
+    avg_part = np.mean(participation_rates)
+    
+    print("-" * 40)
+    print(f"📢 DIAGNOSTIC RESULT:")
+    print(f"   Average Participation: {avg_part:.1f}%")
+    
+    if avg_part < 40:
+        print("   ⚠️  STATUS: SUB-CRITICAL (Too Silent)")
+        print("   👉 Recommendation: INCREASE multiplier or DECREASE threshold.")
+    elif avg_part > 98:
+        print("   ⚠️  STATUS: SUPER-CRITICAL (Epileptic/Saturated)")
+        print("   👉 Recommendation: DECREASE multiplier.")
+    else:
+        print("   ✅ STATUS: EDGE OF CHAOS (Healthy)")
+        print("   (Ideal is 80-95% participation with low firing rates)")
+    print("="*40 + "\n")
+
+
+def main(feature_set: str, multiplier: float, leak_variance_divisor: float = None):
     X_spikes, y_labels = load_spike_dataset()
     if X_spikes is None:
         return
@@ -107,7 +170,8 @@ def main(feature_set: str, multiplier: float):
         refractory_period=REFRACTORY_PERIOD,
         small_world_graph_p=SMALL_WORLD_P,
         small_world_graph_k=SMALL_WORLD_K,
-        input_spike_times=X_train[0]
+        input_spike_times=X_train[0],
+        leak_variance_divisor=leak_variance_divisor 
     )
 
     w_critico_calculated = calculate_theoretical_w_critico(
@@ -115,11 +179,16 @@ def main(feature_set: str, multiplier: float):
     optimal_weight = w_critico_calculated * multiplier
 
     print(f"Using weight: {optimal_weight:.8f} (multiplier: {multiplier:.2f})")
+    if leak_variance_divisor:
+        print(f"Using Heterogeneous Leak. Divisor: {leak_variance_divisor}")
 
     base_params.mean_weight = optimal_weight
-    base_params.weight_variance = optimal_weight * 0.1
+    base_params.weight_variance = 10
 
     lsm = SNN(simulation_params=base_params)
+
+    # ### NEW: Run diagnostics before the heavy lifting
+    run_network_diagnostics(lsm, X_train)
 
     feature_keys = FEATURE_SETS[feature_set]
     print(f"Extracting feature set: '{feature_set}'")
@@ -138,23 +207,18 @@ def main(feature_set: str, multiplier: float):
         y_train=y_train,
         X_test_features=X_test_scaled,
         y_test=y_test,
-        feature_set=feature_set
+        feature_set=feature_set,
+        leak_variance_divisor=leak_variance_divisor 
     )
 
     print(f"Extraction complete. Features saved to '{output_file}'")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Extract features from a spike train dataset using an LSM.")
-    parser.add_argument(
-        "--feature-set",
-        type=str,
-        default="original",
-        choices=FEATURE_SETS.keys(),
-        help="The set of features to extract.")
-    parser.add_argument("--multiplier", type=float, default=0.6,
-                        help="Multiplier for w_critico.")
+    parser = argparse.ArgumentParser(description="Extract features from a spike train dataset using an LSM.")
+    parser.add_argument("--feature-set", type=str, default="original", choices=FEATURE_SETS.keys())
+    parser.add_argument("--multiplier", type=float, default=0.6)
+    parser.add_argument("--leak-variance-divisor", type=float, default=None)
 
     args = parser.parse_args()
-    main(feature_set=args.feature_set, multiplier=args.multiplier)
+    main(feature_set=args.feature_set, multiplier=args.multiplier, leak_variance_divisor=args.leak_variance_divisor)
