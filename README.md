@@ -24,7 +24,7 @@ python main.py --n-filters 128 --filterbank gammatone --feature-set original --m
 
 ### 2. Dataset
 
-1. Download the **Google Speech Commands v0.02** dataset.
+1. Download the **Google Speech Commands v0.02** dataset. [ http://download.tensorflow.org/data/speech_commands_v0.02.tar.gz ]
 2. Extract the dataset and ensure the directory containing the spoken words (e.g., `yes`, `no`, `up`, `down`) is named `speech_commands_v0.02` and placed in the project's root folder.
 
 ### 3. Dependencies
